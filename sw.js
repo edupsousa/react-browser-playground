@@ -1,4 +1,7 @@
 importScripts('/lib/babel.js');
+importScripts('/lib/index.js');
+
+const libraries = self.libraries || {};
 
 const transformImport = ({types}) => {
     return {
@@ -7,14 +10,18 @@ const transformImport = ({types}) => {
             ImportDeclaration(path) {
                 const sourcePath = path.get('source');
                 const source = sourcePath.node.value;
-                const hasExtension = source.endsWith('.js') || source.endsWith('.jsx');
-                const isLibrary = !(source.startsWith('/') || source.startsWith('./') || source.startsWith('../'))
                 let replacement = source;
-                if (isLibrary) {
-                    replacement = `/lib/${source}`;
-                }
-                if (!hasExtension) {
-                    replacement += isLibrary ? '.js' : '.jsx';
+                if (libraries[source] !== undefined) {
+                    replacement = libraries[source];
+                } else {
+                    const hasExtension = source.endsWith('.js') || source.endsWith('.jsx');
+                    const isLibrary = !(source.startsWith('/') || source.startsWith('./') || source.startsWith('../'))
+                    if (isLibrary) {
+                        replacement = `/lib/${source}`;
+                    }
+                    if (!hasExtension) {
+                        replacement += isLibrary ? '.js' : '.jsx';
+                    }
                 }
                 if (source !== replacement) {
                     sourcePath.replaceWith(types.stringLiteral(replacement));
