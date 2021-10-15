@@ -1,66 +1,50 @@
-importScripts('/lib/babel.js');
-importScripts('/lib/index.js');
+/// <reference lib="webworker" />
 
-const libraries = self.libraries || {};
+(() => {
+  importScripts('/lib/babel.js');
+  importScripts('/lib/index.js');
+  const parseImportPlugin = self.parseImportPlugin;
 
-const transformImport = ({types}) => {
-    return {
-        name: 'import-transform',
-        visitor: {
-            ImportDeclaration(path) {
-                const sourcePath = path.get('source');
-                const source = sourcePath.node.value;
-                let replacement = source;
-                if (libraries[source] !== undefined) {
-                    replacement = libraries[source];
-                } else {
-                    const hasExtension = source.endsWith('.js') || source.endsWith('.jsx');
-                    const isLibrary = !(source.startsWith('/') || source.startsWith('./') || source.startsWith('../'))
-                    if (isLibrary) {
-                        replacement = `/lib/${source}`;
-                    }
-                    if (!hasExtension) {
-                        replacement += isLibrary ? '.js' : '.jsx';
-                    }
-                }
-                if (source !== replacement) {
-                    sourcePath.replaceWith(types.stringLiteral(replacement));
-                }
-            }
-        }
-    }
-}
+  const worker = /** @type {ServiceWorkerGlobalScope} */ (
+    /** @type {unknown} */ (globalThis.self)
+  );
 
-self.addEventListener('fetch', (event) => {
-    const { request: { url } } = event;
+  worker.addEventListener('install', (event) => {
+    return worker.skipWaiting();
+  });
+  worker.addEventListener('activate', (event) => {});
+  worker.addEventListener('fetch', (event) => onFetch(event));
+
+  function onFetch(event) {
+    const {
+      request: { url },
+    } = event;
     if (url.endsWith('.jsx')) {
-        event.respondWith(
-            fetch(url)
-                .then((r) => r.text())
-                .then((body) => Babel.transform(body, {
-                    presets: [
-                        ['react'],
-                        ['env', { modules: false }]
-                    ],
-                    plugins: [
-                        transformImport
-                    ],
-                    sourceMaps: true,
-                }))
-                // .then((t) => {
-                //     console.log(t.code);
-                //     return t;
-                // })
-                .then((transformed) => new Response(
-                    transformed.code,
-                    {
-                        headers: new Headers({
-                            'Content-Type': 'application/javascript'
-                        })
-                    }
-                ))
-        );
+      event.respondWith(fetchJSX(url));
     }
-});
+  }
 
-self.addEventListener('activate', (event) => event.waitUntil(clients.claim()));
+  function fetchJSX(url) {
+    return fetch(url)
+      .then((r) => r.text())
+      .then((code) => babelTransformJSX(code, url))
+      .then((code) => createJSResponse(code));
+  }
+
+  function createJSResponse(code) {
+    return new Response(code, {
+      headers: new Headers({
+        'Content-Type': 'application/javascript',
+      }),
+    });
+  }
+
+  function babelTransformJSX(code, url) {
+    return Babel.transform(code, {
+      presets: [['react'], ['env', { modules: false }]],
+      plugins: [parseImportPlugin],
+      sourceMaps: 'inline',
+      sourceFileName: url,
+    }).code;
+  }
+})();
